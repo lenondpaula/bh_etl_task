@@ -4,7 +4,7 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pydeck as pdk
-import plotly.express as px
+import altair as alt
 import streamlit as st
 import pandas as pd
 
@@ -25,7 +25,7 @@ def choose_name_column(gdf):
 
 
 def color_from_score(score: float) -> tuple:
-    """Converte um score [0,1] em uma cor RGB.
+    """Converte um score [0,1] em uma cor RGB com thresholds claros.
 
     Args:
         score: Valor normalizado entre 0 e 1.
@@ -33,10 +33,13 @@ def color_from_score(score: float) -> tuple:
     Returns:
         tuple: Tripla (R, G, B) indicando a cor.
     """
-    r = int(255 * (1 - score))
-    g = int(200 * score)
-    b = 50
-    return (r, g, b)
+    if score is None or (isinstance(score, float) and np.isnan(score)):
+        return (200, 100, 0)
+    if score > 0.7:
+        return (0, 255, 0)
+    if score >= 0.4:
+        return (255, 200, 0)
+    return (200, 0, 0)
 
 
 def polygon_to_coords(poly):
@@ -72,11 +75,11 @@ def main():
         """
         <style>
         /* Background e tipografia */
-        .stApp { background-color: #f7f8fa; color: #0b1f3b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+        .stApp, [data-testid='stSidebar'] { background-color: #FFFFFF !important; color: #31333F !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
         .css-18e3th9 { padding-top: 1rem; }
 
         /* Conteúdos principais (cards) */
-        .stContainer, .stCard, .streamlit-expanderHeader { background-color: transparent }
+        .stApp, .stSidebar, .stContainer, .stCard { background-color: #FFFFFF !important; color: #31333F !important; }
         .stMetric > div { background-color: #ffffff !important; border-radius: 10px !important; box-shadow: 0 4px 10px rgba(11,31,59,0.06) !important; padding: 10px !important; }
 
         /* Títulos */
@@ -92,7 +95,20 @@ def main():
     )
 
     st.markdown("# BH Strategic Navigator - Site Selection AI")
+    with st.expander("🧭 Guia Rápido de Navegação e Uso", expanded=True):
+        st.markdown("**Visualização 3D:** Altura = Densidade de Empresas; Cor = Apetite do Investidor (Verde = Alta Oportunidade / Blue Ocean).")
+        st.markdown("**Sidebar:** Filtros por setor e indicadores em tempo real.")
+        st.markdown("**Cluster Analysis:** Bairros são agrupados por perfis socioeconômicos similares; clusters de alto apetite sinalizam zonas premium para investimento.")
+        st.markdown("**Controles:** Botão direito do mouse + arrastar para girar/inclinar a visão 3D.")
     st.markdown("#### Seleção de locais — análise de oportunidade comercial (MVP)")
+
+    # Sidebar: About/README expander
+    try:
+        readme_text = Path("README_APP.md").read_text(encoding="utf8")
+    except Exception:
+        readme_text = "README_APP.md não encontrado."
+    st.sidebar.expander("📄 Sobre o Projeto (README)", expanded=False).markdown(readme_text, unsafe_allow_html=True)
+
 
     # Footer corporativo customizado (exibe contato e licença)
     footer_md = """
@@ -103,9 +119,9 @@ def main():
     """
     st.markdown(footer_md, unsafe_allow_html=True)
 
-    data_path = Path("data/bh_final_data.geojson")
+    data_path = Path("data/bh_final_data.parquet")
     if not data_path.exists():
-        st.error("Arquivo data/bh_final_data.geojson não encontrado. Execute o ETL primeiro.")
+        st.error("Arquivo data/bh_final_data.parquet não encontrado. Execute o ETL primeiro.")
         return
 
     @st.cache_data(show_spinner=False)
@@ -118,28 +134,101 @@ def main():
         Returns:
             pd.DataFrame: GeoDataFrame com colunas calculadas para visualização.
         """
-        gdf_local = gpd.read_file(path_str)
+        import shapely.wkt as wkt
+        if str(path_str).endswith('.parquet'):
+            df = pd.read_parquet(path_str)
+            if 'geometry_wkt' in df.columns:
+                df['geometry'] = df['geometry_wkt'].apply(lambda s: wkt.loads(s) if pd.notna(s) else None)
+            gdf_local = gpd.GeoDataFrame(df, geometry='geometry')
+        else:
+            gdf_local = gpd.read_file(path_str)
         # Ensure numeric columns exist and are filled
         for col in ["Qtd_Empresas", "Apetite_Investidor", "Saturacao_Comercial", "Renda_Media"]:
             if col not in gdf_local.columns:
                 gdf_local[col] = 0
         # Prepare style columns
         gdf_local["_coords"] = gdf_local.geometry.apply(polygon_to_coords)
+        # Convert geometry to WKT string to avoid pyarrow serialization errors in Streamlit
+        if "geometry" in gdf_local.columns:
+            gdf_local["geometry"] = gdf_local["geometry"].apply(lambda g: g.wkt if g is not None else None)
         gdf_local["Apetite_Investidor"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float)
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
-        max_emp_local = max(1, int(gdf_local["Qtd_Empresas"].max()))
-        gdf_local["elevation"] = gdf_local["Qtd_Empresas"].fillna(0).astype(float) / max_emp_local * 3000
-        gdf_local[["r", "g", "b"]] = gdf_local.apply(
-            lambda row: pd_color_tuple(row["Apetite_Investidor"]), axis=1, result_type="expand"
-        )
+        # elevation: use Densidade_Comercial normalized to [0, 1000]
+        dens = gdf_local.get("Densidade_Comercial", pd.Series(0)).fillna(0).astype(float)
+        max_dens = max(1.0, float(dens.max()))
+        # elevation: log-scale and cap to avoid extreme towers; keeps other bairros visible
+        raw = ((dens / max_dens) * 1000).astype(float)
+        gdf_local["elevation"] = (np.log1p(raw) * 150).clip(0, 400).astype(float)
+        # fill_color: gradient yellow -> dark green based on Apetite_Investidor
+        def _fill(s: float):
+            sc = float(s) if (s is not None and not np.isnan(s)) else 0.0
+            # thresholds: >0.7 green, 0.4-0.7 yellow/orange, <0.4 red
+            if sc > 0.7:
+                return [0, 255, 0, 160]
+            if sc >= 0.4:
+                return [255, 200, 0, 160]
+            return [200, 0, 0, 160]
+        gdf_local["fill_color"] = gdf_local["Apetite_Investidor"].apply(_fill)
         return gdf_local
 
     gdf = load_final_gdf(str(data_path))
+
+    # Sidebar: legenda e filtro
+    st.sidebar.header("Legenda")
+    st.sidebar.markdown(
+        "**Apetite = 0.4 * Mobilidade + 0.6 * Renda**\n\n- Mobilidade: pontos de ônibus por bairro (normalizado)\n- Renda: renda média por bairro (normalizada)",
+        unsafe_allow_html=True,
+    )
 
     name_col = choose_name_column(gdf)
     if name_col is None:
         st.error("Coluna de nome do bairro não encontrada no GeoDataFrame.")
         return
+
+    bairros_options = sorted(list(gdf[name_col].dropna().unique()))
+
+    # Sidebar: filter to Centro-Sul only. If region column exists, prefer that; otherwise use hardcoded list
+    def _normalize_simple(s: str) -> str:
+        import unicodedata
+
+        if not s:
+            return ""
+        s2 = str(s).upper()
+        s2 = "".join(c for c in unicodedata.normalize("NFKD", s2) if not unicodedata.combining(c))
+        s2 = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in s2)
+        s2 = " ".join(s2.split())
+        return s2
+
+    region_col = next((c for c in gdf.columns if "REG" in c.upper()), None)
+    centro_options = []
+    if region_col:
+        try:
+            centro_options = sorted(list(gdf[gdf[region_col].str.contains("CENTRO", case=False, na=False)][name_col].dropna().unique()))
+        except Exception:
+            centro_options = []
+    if not centro_options:
+        hardcoded = ["Savassi", "Centro", "Lourdes", "Belvedere", "Sion", "Anchieta", "Cruzeiro", "Santo Agostinho", "Funcionários"]
+        hard_norm = set(_normalize_simple(x) for x in hardcoded)
+        centro_options = [b for b in bairros_options if (_normalize_simple(b) in hard_norm) or any(h in _normalize_simple(b) for h in hard_norm)]
+        centro_options = sorted(list(dict.fromkeys(centro_options)))
+    if not centro_options:
+        centro_options = bairros_options[:9]
+
+    selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=centro_options[:5])
+    if selected:
+        gdf = gdf[gdf[name_col].isin(selected)].copy()
+
+    # métricas rápidas na sidebar
+    total_empresas = int(gdf["Qtd_Empresas"].sum())
+    bairro_maior_renda = (
+        gdf.loc[gdf["Renda_Media"].idxmax(), name_col] if gdf["Renda_Media"].notna().any() else "-"
+    )
+    bairro_maior_mobilidade = (
+        gdf.loc[gdf["Score_Mobilidade"].idxmax(), name_col] if gdf["Score_Mobilidade"].notna().any() else "-"
+    )
+    st.sidebar.metric("Total de Empresas", f"{total_empresas:,}")
+    st.sidebar.metric("Maior Renda (bairro)", f"{bairro_maior_renda}")
+    st.sidebar.metric("Maior Mobilidade (bairro)", f"{bairro_maior_mobilidade}")
 
     # gdf já contém colunas de estilo via cache
 
@@ -151,11 +240,26 @@ def main():
 
         with col_map:
             # pydeck expects records with polygon coordinates and color/elevation
-            records = gdf.assign(
-                coordinates=gdf["_coords"],
-                fill_color=gdf[["r", "g", "b"]].values.tolist(),
-                elevation=gdf["elevation"].astype(float),
-            ).to_dict(orient="records")
+            records = []
+            for _, row in gdf.iterrows():
+                coords = row.get("_coords", []) or []
+                try:
+                    coords = [[float(lon), float(lat)] for lon, lat in coords if lon is not None and lat is not None]
+                except Exception:
+                    coords = []
+                fill_color = row.get("fill_color", [255, 255, 0, 180])
+                fill_color = [int(x) for x in list(fill_color)]
+                elevation = float(row.get("elevation", 0.0) or 0.0)
+                rec = {
+                    "coordinates": coords,
+                    "fill_color": fill_color,
+                    "elevation": elevation,
+                    name_col: row.get(name_col),
+                    "Renda_Media": float(row.get("Renda_Media", 0) or 0.0),
+                    "Qtd_Empresas": int(row.get("Qtd_Empresas", 0) or 0),
+                    "Classificacao": str(row.get("Classificacao", "")),
+                }
+                records.append(rec)
 
             polygon_layer = pdk.Layer(
                 "PolygonLayer",
@@ -169,6 +273,8 @@ def main():
                 get_fill_color="fill_color",
                 get_line_color=[80, 80, 80],
                 get_elevation="elevation",
+                elevation_scale=1,
+                elevation_range=[0, 400],
             )
 
             tooltip = {
@@ -176,35 +282,67 @@ def main():
                 "style": {"backgroundColor": "#F0F0F0", "color": "#000000"},
             }
 
-            deck = pdk.Deck(layers=[polygon_layer], initial_view_state=pdk.ViewState(latitude=-19.9, longitude=-43.9, zoom=11, pitch=45), tooltip=tooltip)
-            st.pydeck_chart(deck)
+            df_table = gdf.drop(columns=["geometry"], errors="ignore").copy()
+
+            deck = pdk.Deck(
+                layers=[polygon_layer],
+                initial_view_state=pdk.ViewState(latitude=-19.933, longitude=-43.935, zoom=13.5, pitch=45),
+                tooltip=tooltip,
+            )
+            try:
+                st.pydeck_chart(deck)
+            except Exception as e:
+                st.warning(f"Falha ao renderizar mapa 3D: {e}. Mostrando tabela resumo.")
+                st.dataframe(gdf[[name_col, "Renda_Media", "Qtd_Empresas", "Classificacao"]])
 
         with col_panel:
-            # Metrics
-            top_idx = int(gdf["Apetite_Investidor"].idxmax())
-            top_bairro = gdf.loc[top_idx, name_col]
-            mean_renda = float(gdf["Renda_Media"].dropna().mean())
-
-            st.metric("Bairro com Maior Potencial", top_bairro)
-            st.metric("Média de Renda da Região", f"R$ {mean_renda:,.0f}")
+            st.header("Indicadores")
+            st.metric("Total de Empresas", f"{total_empresas:,}")
+            st.markdown(f"**Bairro com maior renda:** {bairro_maior_renda}")
+            st.markdown(f"**Bairro com maior mobilidade:** {bairro_maior_mobilidade}")
+            st.markdown("---")
+            st.markdown("Selecione bairros no painel lateral para comparar.")
 
     with tab2:
         st.header("Cluster Analysis")
 
-        fig = px.scatter(
-            gdf,
-            x="Saturacao_Comercial",
-            y="Apetite_Investidor",
-            hover_name=name_col,
-            size_max=12,
-            color="Classificacao",
-            labels={"Saturacao_Comercial": "Saturação Comercial", "Apetite_Investidor": "Apetite Investidor"},
-        )
+        # Scatter plot (Altair) — saturação vs apetite
+        try:
+            scatter = alt.Chart(gdf.reset_index()).mark_circle(size=80).encode(
+                x=alt.X("Saturacao_Comercial:Q", title="Saturação Comercial"),
+                y=alt.Y("Apetite_Investidor:Q", title="Apetite Investidor"),
+                color=alt.Color("Classificacao:N"),
+                tooltip=[alt.Tooltip(name_col + ":N"), alt.Tooltip("Saturacao_Comercial:Q"), alt.Tooltip("Apetite_Investidor:Q"), alt.Tooltip("Qtd_Empresas:Q")],
+            ).interactive().properties(height=420)
+            st.altair_chart(scatter, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Falha ao renderizar scatter (Altair): {e}")
+            st.dataframe(gdf[[name_col, "Saturacao_Comercial", "Apetite_Investidor", "Qtd_Empresas"]])
 
-        # Highlight ideal quadrant: Saturacao_Comercial < 0.4 and Apetite_Investidor > 0.7
-        fig.add_shape(type="rect", x0=0, x1=0.4, y0=0.7, y1=1.0, fillcolor="rgba(0,255,0,0.08)", line_width=0)
-        fig.update_layout(height=600)
-        st.plotly_chart(fig, use_container_width=True)
+        # Load IQVU / Score_Renda.csv and show bar chart
+        @st.cache_data
+        def load_iqvu(path: str) -> pd.DataFrame:
+            try:
+                df = pd.read_csv(path, sep=";", decimal=",", encoding="utf-8", on_bad_lines="skip")
+                name_col_score = next((c for c in df.columns if "NOME" in c.upper()), None)
+                iqvu_col = next((c for c in df.columns if "IQVU" in c.upper()), None)
+                if name_col_score and iqvu_col:
+                    df = df[[name_col_score, iqvu_col]].copy()
+                    df[iqvu_col] = df[iqvu_col].astype(str).str.replace(",", ".", regex=False)
+                    df[iqvu_col] = pd.to_numeric(df[iqvu_col], errors="coerce")
+                    df[iqvu_col] = df[iqvu_col].fillna(0)
+                    df = (
+                        df.groupby(name_col_score)[iqvu_col]
+                        .mean()
+                        .reset_index()
+                        .sort_values(iqvu_col, ascending=False)
+                    )
+
+                    df.columns = ["NOME", "IQVU"]
+                    return df
+            except Exception:
+                return pd.DataFrame()
+            return pd.DataFrame()
 
 
 def pd_color_tuple(score: float):
