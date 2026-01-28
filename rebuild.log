@@ -1,0 +1,104 @@
+💼 Carregando cadastro de empresas...
+✅ Carregadas 106166 empresas em 17 bairros
+
+🗺️  Convertendo pontos WKT para geometrias...
+
+📍 Aplicando filtro de bounding box (Centro-Sul: lat -19.98 a -19.90, lon -43.97 a -43.90)...
+✅ Filtrados 97 pontos outliers (fora do bounding box)
+✅ 106069 pontos válidos dentro do bounding box Centro-Sul
+
+📐 Criando polígonos por bairro (convex hull)...
+   ✅ CENTRO         : 25546 empresas → polígono
+   ✅ SAVASSI        : 20622 empresas → polígono
+   ✅ SANTA EFIGENIA :  9964 empresas → polígono
+   ✅ LOURDES        :  9714 empresas → polígono
+   ✅ SANTO ANTONIO  :  6311 empresas → polígono
+   ✅ SERRA          :  6001 empresas → polígono
+   ✅ SION           :  5059 empresas → polígono
+   ✅ FUNCIONARIOS   :  4989 empresas → polígono
+   ✅ BELVEDERE      :  3783 empresas → polígono
+   ✅ ANCHIETA       :  2968 empresas → polígono
+   ✅ SAO PEDRO      :  2818 empresas → polígono
+   ✅ CRUZEIRO       :  2512 empresas → polígono
+   ✅ CARMO          :  2366 empresas → polígono
+   ✅ BOA VIAGEM     :  1440 empresas → polígono
+   ✅ SAO LUCAS      :   912 empresas → polígono
+   ✅ VILA PARIS     :   735 empresas → polígono
+   ✅ MANGABEIRAS    :   329 empresas → polígono
+
+✅ 17 bairros com geometrias criadas
+🌍 Reprojetando UTM → WGS84...
+
+📍 Validando localizações (centro da região: -19.9475, -43.9472):
+   CENTRO         : (-19.9193, -43.9386)
+   SAVASSI        : (-19.9357, -43.9345)
+   SANTA EFIGENIA : (-19.9245, -43.9190)
+   LOURDES        : (-19.9310, -43.9427)
+   SANTO ANTONIO  : (-19.9437, -43.9439)
+   SERRA          : (-19.9401, -43.9191)
+   SION           : (-19.9542, -43.9343)
+   FUNCIONARIOS   : (-19.9319, -43.9280)
+   BELVEDERE      : (-19.9688, -43.9396)
+   ANCHIETA       : (-19.9495, -43.9269)
+   SAO PEDRO      : (-19.9461, -43.9373)
+   CRUZEIRO       : (-19.9442, -43.9257)
+   CARMO          : (-19.9432, -43.9319)
+   BOA VIAGEM     : (-19.9291, -43.9352)
+   SAO LUCAS      : (-19.9309, -43.9198)
+   VILA PARIS     : (-19.9503, -43.9502)
+   MANGABEIRAS    : (-19.9558, -43.9192)
+
+💰 Carregando Score_Renda (IQVU)...
+✅ IQVU carregado para 79 registros
+
+⚠️  Verificando dados ausentes:
+   10 bairros sem IQVU match: ['LOURDES', 'SION', 'FUNCIONARIOS', 'ANCHIETA', 'SAO PEDRO', 'CRUZEIRO', 'CARMO', 'BOA VIAGEM', 'SAO LUCAS', 'VILA PARIS']
+   ℹ️  Preenchendo com mediana dos bairros disponíveis...
+   ✅ Mediana: 760.91
+
+✅ Após limpeza: 17 bairros com dados completos
+
+📊 Calculando saturação comercial...
+
+🏆 Aplicando lógica de classificação forçada (Ouro/Prata/Bronze)...
+✅ Classificação aplicada: {'Prata': 17}
+
+📉 Calculando elevação 3D com escala visual crítica (Apetite × 3000)...
+✅ Elevação 3D calculada: max=2674.3m, min=1750.8m
+
+✅ Verificando Classificação preenchida:
+   ✅ Todos os 17 bairros têm Classificação preenchida
+
+💾 Salvando arquivos...
+
+✅ CONCLUÍDO!
+   Bairros salvos: 17
+   Arquivo: data/bh_final_data.geojson
+   Arquivo: data/data_final.parquet
+
+📈 RESUMO FINAL:
+==========================================================================================
+SERRA              | Renda:   795.4 | Empresas:  6001 | Apetite: 0.891 | Elev 3D: 2674.320 | Prata
+BELVEDERE          | Renda:   755.5 | Empresas:  3783 | Apetite: 0.801 | Elev 3D: 2402.360 | Prata
+SAO LUCAS          | Renda:   760.9 | Empresas:   912 | Apetite: 0.799 | Elev 3D: 2398.427 | Prata
+VILA PARIS         | Renda:   760.9 | Empresas:   735 | Apetite: 0.797 | Elev 3D: 2390.933 | Prata
+SION               | Renda:   760.9 | Empresas:  5059 | Apetite: 0.773 | Elev 3D: 2320.092 | Prata
+ANCHIETA           | Renda:   760.9 | Empresas:  2968 | Apetite: 0.768 | Elev 3D: 2303.553 | Prata
+SANTO ANTONIO      | Renda:   760.9 | Empresas:  6311 | Apetite: 0.762 | Elev 3D: 2287.368 | Prata
+CRUZEIRO           | Renda:   760.9 | Empresas:  2512 | Apetite: 0.758 | Elev 3D: 2274.548 | Prata
+SAO PEDRO          | Renda:   760.9 | Empresas:  2818 | Apetite: 0.755 | Elev 3D: 2263.547 | Prata
+FUNCIONARIOS       | Renda:   760.9 | Empresas:  4989 | Apetite: 0.723 | Elev 3D: 2168.746 | Prata
+BOA VIAGEM         | Renda:   760.9 | Empresas:  1440 | Apetite: 0.719 | Elev 3D: 2156.547 | Prata
+LOURDES            | Renda:   760.9 | Empresas:  9714 | Apetite: 0.709 | Elev 3D: 2125.964 | Prata
+CARMO              | Renda:   760.9 | Empresas:  2366 | Apetite: 0.690 | Elev 3D: 2069.354 | Prata
+CENTRO             | Renda:   786.4 | Empresas: 25546 | Apetite: 0.680 | Elev 3D: 2040.713 | Prata
+SAVASSI            | Renda:   802.6 | Empresas: 20622 | Apetite: 0.646 | Elev 3D: 1938.300 | Prata
+MANGABEIRAS        | Renda:   698.9 | Empresas:   329 | Apetite: 0.646 | Elev 3D: 1938.300 | Prata
+SANTA EFIGENIA     | Renda:   701.8 | Empresas:  9964 | Apetite: 0.584 | Elev 3D: 1750.755 | Prata
+==========================================================================================
+
+🎯 CLASSIFICAÇÕES:
+   • OPORTUNIDADE DE OURO: 0 bairros
+   • SATURADO: 0 bairros
+   • REGULAR: 0 bairros
+

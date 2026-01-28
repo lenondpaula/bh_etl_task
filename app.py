@@ -370,7 +370,7 @@ def main():
                 get_line_color=[80, 80, 80],
                 get_elevation="elevation",
                 auto_highlight=True,
-                elevation_scale=1.0,
+                elevation_scale=1,
                 elevation_range=[0, 1000],
             )
 
@@ -387,7 +387,7 @@ def main():
                 tooltip=tooltip,
             )
             try:
-                st.pydeck_chart(deck)
+                st.pydeck_chart(deck, key='map_vfinal_123')
             except Exception as e:
                 st.warning(f"Falha ao renderizar mapa 3D: {e}. Mostrando tabela resumo.")
                 st.dataframe(gdf[[name_col, "Renda_Media", "Qtd_Empresas", "Classificacao"]])
