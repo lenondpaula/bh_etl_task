@@ -17,7 +17,7 @@ Jornalista | Especialista em Ciência de Dados e IA. Este MVP foi criado para fo
 ## Como usar
 
 1. Use o painel lateral para filtrar bairros do Centro‑Sul e ver indicadores em tempo real.
-2. No mapa 3D, altura = densidade de empresas (extrusão) — girar com botão direito do mouse.
+2. No mapa 3D, altura representa a densidade comercial (extrusão); cor representa o Apetite do Investidor — girar com botão direito do mouse.
 3. Em "Cluster Analysis" explore agrupamentos por perfil socioeconômico.
 
 ---

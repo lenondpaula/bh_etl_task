@@ -36,12 +36,12 @@ def main():
 
     st.markdown("# BH Strategic Navigator")
 
-    st.markdown("Esta aplicação avalia a atratividade para investimentos nos bairros da Região Centro-Sul de Belo Horizonte, baseada em dados de renda, mobilidade urbana, quantidade de empresas e IQVU.")
+    st.markdown("O BH Strategic Navigator é uma ferramenta de análise geoespacial desenvolvida para avaliar a atratividade de investimentos nos bairros da Região Centro-Sul de Belo Horizonte. Utiliza dados integrados de renda média, mobilidade urbana, densidade empresarial e indicadores de valorização urbana (IQVU) para fornecer insights acionáveis em visualizações 3D interativas.")
 
     with st.expander("🧭 Guia Rápido de Navegação e Uso", expanded=True):
         st.markdown(
             """
-            **Visualização 3D:** Altura = Densidade de Empresas; Cor = Apetite do Investidor (Verde = Alta Oportunidade / Blue Ocean).
+            **Visualização 3D:** Extrusão 3D representa a densidade comercial (altura dos polígonos); Cor representa o Apetite do Investidor (Ouro = Alta Atratividade, Prata = Moderada, Vermelho = Baixa). Visualmente, o investidor identifica "paredões" de saturação e "vales" de oportunidade.
 
             **Legenda de Cores:**
 
@@ -99,7 +99,12 @@ def main():
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
         if "Apetite_Investidor" in gdf_local.columns:
             score_val = gdf_local["Apetite_Investidor"].fillna(0).astype(float)
-            gdf_local["elevation"] = 100 + (pow(score_val, 4) * 1500)  # Aumentado para melhor visualização
+        else:
+            score_val = 0.0
+        # Elevation baseada na quantidade de empresas
+        max_qtd = gdf_local["Qtd_Empresas"].max()
+        if max_qtd > 0:
+            gdf_local["elevation"] = 100 + (gdf_local["Qtd_Empresas"] / max_qtd) * 3000
         else:
             gdf_local["elevation"] = 100.0
         gdf_local["classificacao"] = gdf_local.apply(
@@ -108,6 +113,10 @@ def main():
         )
         gdf_local["fill_color"] = gdf_local["classificacao"].map(
             {"OURO": [255, 215, 0], "PRATA": [70, 130, 180], "SATURADO": [200, 0, 0]}
+        )
+        # Adicionar coluna de mobilidade estimada
+        gdf_local["Mobilidade"] = gdf_local["Apetite_Investidor"].apply(
+            lambda x: "Excelente" if x > 0.8 else "Boa" if x > 0.6 else "Regular" if x > 0.4 else "Baixa"
         )
         return gdf_local
 
@@ -125,7 +134,7 @@ def main():
         **0.4 x Score Renda + 0.3 x Score Mobilidade - 0.3 x Saturação Comercial**
 
         **Elevação 3D:**
-        **100 + (Apetite Investidor^4 x 1500)**
+        **100 + (Qtd_Empresas / Max_Qtd_Empresas) × 3000**
         """
     )
 
@@ -139,7 +148,7 @@ def main():
             cols[i].metric(row['Nome_Bairro'], f"{row['Apetite_Investidor']:.1%}")
 
     tooltip = {
-        "html": '<b>Bairro:</b> {Nome_Bairro}<br><b>Apetite:</b> {Apetite_Investidor}<br><b>Status:</b> {classificacao}',
+        "html": '<b>Bairro:</b> {Nome_Bairro}<br><b>Classificação de Atratividade:</b> {classificacao}<br><b>IQVU:</b> {Renda_Media}<br><b>Mobilidade Urbana:</b> {Mobilidade}',
         "style": {"backgroundColor": "#F0F0F0", "color": "#000000"},
     }
 
@@ -166,6 +175,7 @@ def main():
         initial_view_state=pdk.ViewState(latitude=-19.935, longitude=-43.935, zoom=13.2, pitch=55),
         tooltip=tooltip,
     )
+    st.info('💡 Entenda: A altura de cada bairro no mapa 3D representa a densidade comercial (número de empresas). Passe o cursor sobre as regiões para ver detalhes interativos, como Índice de Qualidade de Vida Urbana (IQVU) e mobilidade urbana (estimada com base em acesso a transporte público).')
     st.pydeck_chart(deck)
 
     st.markdown('### 📊 Indicadores Consolidados da Região')
@@ -173,13 +183,17 @@ def main():
     with c1:
         st.metric('Total de Empresas', int(gdf['Qtd_Empresas'].sum()))
     with c2:
-        max_renda = gdf['Renda_Media'].max()
-        bairro_max_renda = gdf.loc[gdf['Renda_Media'] == max_renda, 'Nome_Bairro'].iloc[0]
-        st.metric('Maior Renda Média', f"{bairro_max_renda}: R$ {max_renda:,.2f}")
+        max_iqvu = gdf['Renda_Media'].max()
+        bairro_max_iqvu = gdf.loc[gdf['Renda_Media'] == max_iqvu, 'Nome_Bairro'].iloc[0]
+        st.metric('Maior IQVU', f"{bairro_max_iqvu}: {max_iqvu:.2f}")
     with c3:
-        max_apetite = gdf['Apetite_Investidor'].max()
-        bairro_max_apetite = gdf.loc[gdf['Apetite_Investidor'] == max_apetite, 'Nome_Bairro'].iloc[0]
-        st.metric('Maior Potencial (Apetite)', f"{bairro_max_apetite}: {max_apetite:.1%}")
+        # Bairro com melhor mobilidade (Excelente)
+        melhor_mobilidade = gdf[gdf['Mobilidade'] == 'Excelente']
+        if not melhor_mobilidade.empty:
+            bairro_melhor_mob = melhor_mobilidade['Nome_Bairro'].iloc[0]
+            st.metric('Melhor Mobilidade', f"{bairro_melhor_mob}: Excelente")
+        else:
+            st.metric('Melhor Mobilidade', 'N/A')
     st.info('💡 Dica: Selecione bairros na barra lateral para filtrar estes indicadores em tempo real.')
 
     # Gráfico de Clusters Socioeconômicos
