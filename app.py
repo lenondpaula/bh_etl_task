@@ -95,20 +95,22 @@ def main():
     )
 
     st.markdown("# BH Strategic Navigator - Site Selection AI")
-    with st.expander("🧭 Guia Rápido de Navegação e Uso", expanded=True):
+    # Two-column layout for expanders: Guide (left) and README (right)
+    col1, col2 = st.columns(2)
+    with col1.expander("🧭 Guia Rápido de Navegação e Uso", expanded=True):
         st.markdown("**Visualização 3D:** Altura = Densidade de Empresas; Cor = Apetite do Investidor (Verde = Alta Oportunidade / Blue Ocean).")
         st.markdown("**Sidebar:** Filtros por setor e indicadores em tempo real.")
         st.markdown("**Cluster Analysis:** Bairros são agrupados por perfis socioeconômicos similares; clusters de alto apetite sinalizam zonas premium para investimento.")
         st.markdown("**Controles:** Botão direito do mouse + arrastar para girar/inclinar a visão 3D.")
-    st.markdown("#### Seleção de locais — análise de oportunidade comercial (MVP)")
 
-    # Main view README/About expander (moved from sidebar to main area)
     try:
         readme_text = Path("README_APP.md").read_text(encoding="utf8")
     except Exception:
         readme_text = "README_APP.md não encontrado."
-    with st.expander("📄 Sobre o Projeto (README)", expanded=False):
+    with col2.expander("📄 Sobre o Projeto (README)", expanded=False):
         st.markdown(readme_text, unsafe_allow_html=True)
+
+    st.markdown("#### Seleção de locais — análise de oportunidade comercial (MVP)")
 
 
 
@@ -216,8 +218,9 @@ def main():
     if not centro_options:
         centro_options = bairros_options[:9]
 
-    selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=centro_options[:5])
-    if selected:
+    selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=[])
+    # Show all bairros by default when nothing is selected; filter only when user selects one or more
+    if selected and len(selected) > 0:
         gdf = gdf[gdf[name_col].isin(selected)].copy()
 
     # métricas rápidas na sidebar
