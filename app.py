@@ -102,12 +102,14 @@ def main():
         st.markdown("**Controles:** Botão direito do mouse + arrastar para girar/inclinar a visão 3D.")
     st.markdown("#### Seleção de locais — análise de oportunidade comercial (MVP)")
 
-    # Sidebar: About/README expander
+    # Main view README/About expander (moved from sidebar to main area)
     try:
         readme_text = Path("README_APP.md").read_text(encoding="utf8")
     except Exception:
         readme_text = "README_APP.md não encontrado."
-    st.sidebar.expander("📄 Sobre o Projeto (README)", expanded=False).markdown(readme_text, unsafe_allow_html=True)
+    with st.expander("📄 Sobre o Projeto (README)", expanded=False):
+        st.markdown(readme_text, unsafe_allow_html=True)
+
 
 
     # Footer corporativo customizado (exibe contato e licença)

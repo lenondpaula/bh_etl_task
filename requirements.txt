@@ -1,4 +1,3 @@
-# Core runtime dependencies (compatible with Python 3.10+)
 streamlit>=1.18
 polars>=0.16
 geopandas>=0.12
@@ -7,6 +6,5 @@ pandas>=1.4
 pyarrow>=10.0
 shapely>=1.8
 numpy>=1.22
-
-
-# Note: install heavy geo/UI packages (geopandas, fiona, shapely, streamlit) with swap enabled on low-memory EC2 instances.
+fiona>=1.8
+scikit-learn>=1.0
