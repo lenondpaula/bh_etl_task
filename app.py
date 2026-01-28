@@ -87,7 +87,10 @@ def main():
 
         /* Conteúdos principais (cards) */
         .stContainer, .stCard { background-color: #FFFFFF !important; color: #31333F !important; }
-        .stMetric > div { background-color: #ffffff !important; border-radius: 10px !important; box-shadow: 0 4px 10px rgba(11,31,59,0.06) !important; padding: 10px !important; }
+        .stMetric > div { background-color: transparent !important; border-radius: 6px !important; box-shadow: none !important; padding: 6px !important; }
+/* Sidebar metrics: compact, white text on dark bg */
+[data-testid='stSidebar'] .stMetric > div { background-color: #262730 !important; color: #FFFFFF !important; font-size: 1.2rem !important; padding: 8px !important; }
+[data-testid='stSidebar'] .stMetric > div .stMetricValue, [data-testid='stSidebar'] .stMetric > div .stMetricLabel { color: #FFFFFF !important; }
 
         /* Títulos */
         .stMarkdown h1 { color: #0B5FFF; font-weight: 600; }
@@ -173,9 +176,13 @@ def main():
                 gdf_local[col] = 0
         # Prepare style columns
         gdf_local["_coords"] = gdf_local.geometry.apply(polygon_to_coords)
-        # Convert geometry to WKT string to avoid pyarrow serialization errors in Streamlit
+        # Keep shapely geometry objects for polygon extraction and mapping; expose WKT separately
         if "geometry" in gdf_local.columns:
-            gdf_local["geometry"] = gdf_local["geometry"].apply(lambda g: g.wkt if g is not None else None)
+              try:
+                  import shapely.wkt as wkt
+                  gdf_local["geometry_wkt"] = gdf_local["geometry"].apply(lambda g: g.wkt if g is not None else None)
+              except Exception:
+                  gdf_local["geometry_wkt"] = None
         gdf_local["Apetite_Investidor"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float)
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
         # elevation: use Densidade_Comercial normalized to [0, 1000]
@@ -217,7 +224,13 @@ def main():
     except Exception:
         pass
 
-    bairros_options = sorted(list(gdf[name_col].dropna().unique()))
+    # Build deduplicated, normalized bairro options for sidebar
+    bairros_options = sorted(list(dict.fromkeys([b.strip() for b in gdf[name_col].dropna().astype(str)])))
+    # Ensure key Centro-Sul tokens are present in options (uppercased names already applied to gdf[name_col])
+    for token in ['SANTO AGOSTINHO', 'CRUZEIRO']:
+        if token not in bairros_options and token in list(gdf[name_col].unique()):
+            bairros_options.append(token)
+    bairros_options = sorted(list(dict.fromkeys(bairros_options)))
 
     # Sidebar: filter to Centro-Sul only. If region column exists, prefer that; otherwise use hardcoded list
     def _normalize_simple(s: str) -> str:
@@ -245,7 +258,10 @@ def main():
         centro_options = sorted(list(dict.fromkeys(centro_options)))
     if not centro_options:
         centro_options = bairros_options[:9]
-
+    for token in ['SANTO AGOSTINHO', 'CRUZEIRO']:
+        if token in bairros_options and token not in centro_options:
+            centro_options.append(token)
+    centro_options = sorted(list(dict.fromkeys(centro_options)))
     selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=[])
     # If no selection is made, keep the full GeoDataFrame (show all Centro-Sul bairros).
     # Apply filtering only when user explicitly selects one or more bairros.
@@ -289,7 +305,7 @@ def main():
                 # PolygonLayer expects an array of rings (outer ring = first element)
                 coords_wrapped = [coords] if coords else []
                 rec = {
-                      "coordinates": coords_wrapped,                    "fill_color": fill_color,
+                      "geometry": coords_wrapped,                    "coordinates": coords_wrapped,                    "fill_color": fill_color,
                     "elevation": elevation,
                       "Apetite_Investidor": float(row.get("Apetite_Investidor", 0) or 0.0),
                     name_col: row.get(name_col),
@@ -298,6 +314,11 @@ def main():
                     "Classificacao": str(row.get("Classificacao", "")),
                 }
                 records.append(rec)
+            # If records are empty, show dataframe head for debugging so we can inspect whether geometry exists
+            if len(records) == 0:
+                st.write(gdf.head())
+                st.warning("Debug: no polygon records available for pydeck; showing dataframe head.")
+
             polygon_layer = pdk.Layer(
                 "PolygonLayer",
                 data=records,
@@ -306,12 +327,11 @@ def main():
                 filled=True,
                 extruded=True,
                 wireframe=True,
-                get_polygon="coordinates",
+                get_polygon="geometry",
                 get_fill_color="fill_color",
                 get_line_color=[80, 80, 80],
-                get_elevation="Apetite_Investidor * 2500",
+                get_elevation="Apetite_Investidor * 5000",
                 elevation_scale=1,
-                # elevation_range expanded to accommodate amplified heights
                 elevation_range=[0, 1000000],
             )
 
