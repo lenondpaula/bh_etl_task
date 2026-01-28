@@ -89,7 +89,7 @@ def main():
         .stContainer, .stCard { background-color: #FFFFFF !important; color: #31333F !important; }
         .stMetric > div { background-color: transparent !important; border-radius: 6px !important; box-shadow: none !important; padding: 6px !important; }
 /* Sidebar metrics: compact, white text on dark bg */
-[data-testid='stSidebar'] .stMetric > div { background-color: #262730 !important; color: #FFFFFF !important; font-size: 1.2rem !important; padding: 8px !important; }
+[data-testid='stSidebar'] .stMetric > div { background-color: #262730 !important; color: #FFFFFF !important; font-size: 0.9rem !important; padding: 8px !important; }
 [data-testid='stSidebar'] .stMetric > div .stMetricValue, [data-testid='stSidebar'] .stMetric > div .stMetricLabel { color: #FFFFFF !important; }
 
         /* Títulos */
@@ -147,9 +147,9 @@ def main():
     """
     st.markdown(footer_css_html, unsafe_allow_html=True)
 
-    data_path = Path("data/bh_final_data.parquet")
+    data_path = Path("data/bh_final_data.geojson")
     if not data_path.exists():
-        st.error("Arquivo data/bh_final_data.parquet não encontrado. Execute o ETL primeiro.")
+        st.error("Arquivo data/bh_final_data.geojson não encontrado. Execute o ETL primeiro.")
         return
 
     @st.cache_data(show_spinner=False)
@@ -167,9 +167,26 @@ def main():
             df = pd.read_parquet(path_str)
             if 'geometry_wkt' in df.columns:
                 df['geometry'] = df['geometry_wkt'].apply(lambda s: wkt.loads(s) if pd.notna(s) else None)
+            # CRITICAL: Parse WKT strings in geometry column
+            elif 'geometry' in df.columns and isinstance(df['geometry'].iloc[0], str):
+                df['geometry'] = df['geometry'].apply(lambda s: wkt.loads(s) if pd.notna(s) else None)
             gdf_local = gpd.GeoDataFrame(df, geometry='geometry')
         else:
             gdf_local = gpd.read_file(path_str)
+        # Ensure geometry is in WGS84 (lat/lon) for pydeck
+        try:
+            if "geometry" in gdf_local.columns:
+                if gdf_local.crs is None:
+                    bounds = gdf_local.total_bounds
+                    if bounds is not None and (
+                        max(abs(bounds[0]), abs(bounds[2])) > 180
+                        or max(abs(bounds[1]), abs(bounds[3])) > 90
+                    ):
+                        gdf_local = gdf_local.set_crs(epsg=31983, allow_override=True)
+                if gdf_local.crs and str(gdf_local.crs).lower() not in ["epsg:4326", "epsg:4674"]:
+                    gdf_local = gdf_local.to_crs(epsg=4326)
+        except Exception:
+            pass
         # Ensure numeric columns exist and are filled
         for col in ["Qtd_Empresas", "Apetite_Investidor", "Saturacao_Comercial", "Renda_Media"]:
             if col not in gdf_local.columns:
@@ -183,32 +200,58 @@ def main():
                   gdf_local["geometry_wkt"] = gdf_local["geometry"].apply(lambda g: g.wkt if g is not None else None)
               except Exception:
                   gdf_local["geometry_wkt"] = None
+        # Drop geometry column after using for coordinate extraction to avoid pyarrow issues
+        gdf_local = gdf_local.drop(columns=["geometry"], errors="ignore")
         gdf_local["Apetite_Investidor"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float)
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
-        # elevation: use Densidade_Comercial normalized to [0, 1000]
-        dens = gdf_local.get("Densidade_Comercial", pd.Series(0)).fillna(0).astype(float)
-        max_dens = max(1.0, float(dens.max()))
-        # elevation: log-scale and cap to avoid extreme towers; keeps other bairros visible
-        raw = ((dens / max_dens) * 1000).astype(float)
-        gdf_local["elevation"] = (np.log1p(raw) * 150).clip(0, 400).astype(float)
-        # fill_color: gradient yellow -> dark green based on Apetite_Investidor
-        def _fill(s: float):
-            sc = float(s) if (s is not None and not np.isnan(s)) else 0.0
-            # thresholds: >0.7 green, 0.4-0.7 yellow/orange, <0.4 red
-            if sc > 0.7:
-                return [0, 255, 0, 160]
-            if sc >= 0.4:
-                return [255, 200, 0, 160]
-            return [200, 0, 0, 160]
-        gdf_local["fill_color"] = gdf_local["Apetite_Investidor"].apply(_fill)
+        # elevation: usar Elevation_3D * 3000 para criar torres visuais de 0-3km (SCALE CRITICAL)
+        if "Elevation_3D" in gdf_local.columns:
+            gdf_local["elevation"] = gdf_local["Elevation_3D"].fillna(0).astype(float) * 3000
+        elif "Apetite_Investidor" in gdf_local.columns:
+            gdf_local["elevation"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float) * 3000
+        else:
+            gdf_local["elevation"] = 0.0
+        # fill_color: Color by Classificacao (OURO/SATURADO/PRATA)
+        def _fill_by_class(classif: str):
+            classif_upper = str(classif).upper() if pd.notna(classif) else ""
+            if classif_upper == "OURO":
+                return [255, 215, 0, 200]  # Gold - High Visibility
+            elif classif_upper == "SATURADO":
+                return [255, 69, 0, 180]  # Red/Orange - Warning
+            elif classif_upper == "PRATA":
+                return [0, 128, 255, 160]  # Blue - Standard
+            else:
+                return [128, 128, 128, 160]  # Grey - Fallback
+        
+        gdf_local["fill_color"] = gdf_local.get("Classificacao", pd.Series("")).apply(_fill_by_class)
         return gdf_local
 
     gdf = load_final_gdf(str(data_path))
 
     # Sidebar: legenda e filtro
-    st.sidebar.header("Legenda")
+    st.sidebar.header("🎨 Legenda de Cores")
     st.sidebar.markdown(
-        "**Apetite = 0.4 * Mobilidade + 0.6 * Renda**\n\n- Mobilidade: pontos de ônibus por bairro (normalizado)\n- Renda: renda média por bairro (normalizada)",
+        """
+**Classificação por Cores (RGB)**:
+
+🥇 **OURO** [Gold #FFD700]
+- Renda elevada + Mobilidade excelente
+- Apetite_Investidor ≥ 0.78 (não saturado)
+
+🔴 **SATURADO** [Red/Orange #FF4500]
+- Mercado maduro com alta concorrência
+- Qtd_Empresas ≥ 15.000
+
+🥈 **PRATA** [Blue #0080FF]
+- Crescimento estável e oportunidades
+- Mercado aberto com bom potencial
+
+---
+
+**Score de Apetite** = 0.4 × Mobilidade + 0.3 × Renda + 0.3 × (1 - Saturação)
+
+**Elevação 3D** = Apetite_Investidor × 3000 (escala em metros)
+        """,
         unsafe_allow_html=True,
     )
 
@@ -252,20 +295,14 @@ def main():
         except Exception:
             centro_options = []
     if not centro_options:
-        hardcoded = ["Savassi", "Centro", "Lourdes", "Belvedere", "Sion", "Anchieta", "Cruzeiro", "Santo Agostinho", "Funcionários"]
-        hard_norm = set(_normalize_simple(x) for x in hardcoded)
-        centro_options = [b for b in bairros_options if (_normalize_simple(b) in hard_norm) or any(h in _normalize_simple(b) for h in hard_norm)]
-        centro_options = sorted(list(dict.fromkeys(centro_options)))
-    if not centro_options:
-        centro_options = bairros_options[:9]
-    for token in ['SANTO AGOSTINHO', 'CRUZEIRO']:
-        if token in bairros_options and token not in centro_options:
-            centro_options.append(token)
+        # Dynamic: read directly from dataframe (ensures 17 mapped neighborhoods match exactly)
+        centro_options = sorted(gdf[name_col].unique().tolist())
     centro_options = sorted(list(dict.fromkeys(centro_options)))
-    selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=[])
-    # If no selection is made, keep the full GeoDataFrame (show all Centro-Sul bairros).
-    # Apply filtering only when user explicitly selects one or more bairros.
-    if selected is not None and len(selected) > 0:
+    selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=centro_options)
+    # If user explicitly deselects all, show nothing; otherwise always show selected (default = all)
+    if selected is None or len(selected) == 0:
+        selected = centro_options  # Force load all if empty
+    if len(selected) > 0:
         gdf = gdf[gdf[name_col].isin(selected)].copy()
 
     # métricas rápidas na sidebar
@@ -327,12 +364,14 @@ def main():
                 filled=True,
                 extruded=True,
                 wireframe=True,
+                opacity=0.8,
                 get_polygon="geometry",
                 get_fill_color="fill_color",
                 get_line_color=[80, 80, 80],
-                get_elevation="Apetite_Investidor * 5000",
-                elevation_scale=1,
-                elevation_range=[0, 1000000],
+                get_elevation="elevation",
+                auto_highlight=True,
+                elevation_scale=1.0,
+                elevation_range=[0, 3000000],
             )
 
             tooltip = {
@@ -344,7 +383,7 @@ def main():
 
             deck = pdk.Deck(
                 layers=[polygon_layer],
-                initial_view_state=pdk.ViewState(latitude=-19.9286, longitude=-43.9412, zoom=14.0, pitch=50),
+                initial_view_state=pdk.ViewState(latitude=-19.935, longitude=-43.935, zoom=13.2, pitch=55),
                 tooltip=tooltip,
             )
             try:

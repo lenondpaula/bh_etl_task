@@ -792,26 +792,6 @@ if p90 > 0 and p90 < 0.8:
     cs_df['Apetite_Investidor'] = (cs_df['Apetite_Investidor'] * factor).clip(0,1)
     print(f'Scaled Centro-Sul Apetite by factor {factor:.3f} to raise p90 from {p90:.3f}')
 
-# Ensure CRUZEIRO and SANTO AGOSTINHO exist in the final Centro-Sul dataset (add conservative proxies if absent)
-for token in ['CRUZEIRO', 'SANTO AGOSTINHO']:
-    tnorm = token.upper()
-    if tnorm not in set(cs_df['Nome_Bairro_NORM'].dropna().astype(str).unique()):
-        try:
-            proxy = bairros_gdf.iloc[0] if bairros_gdf is not None and not bairros_gdf.empty else None
-            if proxy is not None:
-                new = {c: 0 for c in df.columns}
-                new['Nome_Bairro'] = token.title()
-                new['Nome_Bairro_NORM'] = tnorm
-                if 'geometry_wkt' in df.columns:
-                    new['geometry_wkt'] = proxy.geometry.wkt
-                elif 'geometry' in df.columns:
-                    new['geometry'] = proxy.geometry
-                new['Mapped_From'] = token
-                cs_df = pd.concat([cs_df, pd.DataFrame([new])], ignore_index=True)
-                print(f'Added proxy {token} to ensure visibility in Centro-Sul parquet')
-        except Exception:
-            pass
-
 # Prepare for saving: ensure consistent dtypes for Parquet (strings for object cols) and geometry as WKT
 # convert shapely geometry to geometry_wkt if present
 if 'geometry' in cs_df.columns and 'geometry_wkt' not in cs_df.columns:
