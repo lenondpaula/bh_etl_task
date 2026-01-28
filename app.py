@@ -206,11 +206,14 @@ def main():
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
         # elevation: 300 + (Apetite * 400) para torres urbanas visíveis (300-700m range)
         if "Elevation_3D" in gdf_local.columns:
-            gdf_local["elevation"] = 300 + (gdf_local["Elevation_3D"].fillna(0).astype(float) * 400)
+            gdf_local["elevation"] = gdf_local["Elevation_3D"].fillna(300).astype(float)
         elif "Apetite_Investidor" in gdf_local.columns:
             gdf_local["elevation"] = 300 + (gdf_local["Apetite_Investidor"].fillna(0).astype(float) * 400)
         else:
-            gdf_local["elevation"] = 300.0
+           gdf_local["elevation"] = 300.0
+        # DEBUG: Log elevation values being sent to PyDeck
+        st.write("🔍 Valores de Elevação (Top 5):", gdf_local[['Nome_Bairro', 'Apetite_Investidor', 'elevation']].head(5))
+        
         # fill_color: Color by Classificacao (OURO/SATURADO/PRATA)
         def _fill_by_class(classif: str):
             classif_upper = str(classif).upper() if pd.notna(classif) else ""
@@ -387,7 +390,7 @@ def main():
                 tooltip=tooltip,
             )
             try:
-                st.pydeck_chart(deck, key='map_vfinal_123')
+                st.pydeck_chart(deck, key='map_final_validated_01')
             except Exception as e:
                 st.warning(f"Falha ao renderizar mapa 3D: {e}. Mostrando tabela resumo.")
                 st.dataframe(gdf[[name_col, "Renda_Media", "Qtd_Empresas", "Classificacao"]])
