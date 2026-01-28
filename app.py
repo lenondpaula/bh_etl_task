@@ -75,11 +75,18 @@ def main():
         """
         <style>
         /* Background e tipografia */
-        .stApp, [data-testid='stSidebar'] { background-color: #FFFFFF !important; color: #31333F !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+        .stApp { background-color: #FFFFFF !important; color: #31333F !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+        /* Sidebar: dark theme */
+        [data-testid='stSidebar'] { background-color: #1A1C24 !important; color: #FFFFFF !important; }
+        [data-testid='stSidebar'] .stMarkdown, [data-testid='stSidebar'] label, [data-testid='stSidebar'] .stText { color: #E0E0E0 !important; }
+        /* Multiselect tags and selected chips - high contrast background */
+        [data-testid='stSidebar'] .stMultiSelect span, [data-testid='stSidebar'] .stMultiSelect div, [data-testid='stSidebar'] .stSelectbox span { color: #FFFFFF !important; }
+        [data-testid='stSidebar'] .stMultiSelect .css-1n39o9k > div, [data-testid='stSidebar'] .stMultiSelect .css-1n39o9k .css-1gk2a, [data-testid='stSidebar'] .stSelectbox .css-1n39o9k > div { background-color: #2B2B2B !important; color: #FFFFFF !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius:4px !important; }
+        [data-testid='stSidebar'] .stMultiSelect .css-1n39o9k > div span, [data-testid='stSidebar'] .stSelectbox .css-1n39o9k > div span { color: #FFFFFF !important; }
         .css-18e3th9 { padding-top: 1rem; }
 
         /* Conteúdos principais (cards) */
-        .stApp, .stSidebar, .stContainer, .stCard { background-color: #FFFFFF !important; color: #31333F !important; }
+        .stContainer, .stCard { background-color: #FFFFFF !important; color: #31333F !important; }
         .stMetric > div { background-color: #ffffff !important; border-radius: 10px !important; box-shadow: 0 4px 10px rgba(11,31,59,0.06) !important; padding: 10px !important; }
 
         /* Títulos */
@@ -94,7 +101,7 @@ def main():
         unsafe_allow_html=True,
     )
 
-    st.markdown("# BH Strategic Navigator - Site Selection AI")
+    st.markdown("# BH Strategic Navigator")
     # Two-column layout for expanders: Guide (left) and README (right)
     col1, col2 = st.columns(2)
     with col1.expander("🧭 Guia Rápido de Navegação e Uso", expanded=True):
@@ -114,14 +121,28 @@ def main():
 
 
 
-    # Footer corporativo customizado (exibe contato e licença)
-    footer_md = """
-    <div style='position: fixed; bottom: 8px; left: 16px; width: calc(100% - 32px); text-align: center; font-size:12px; color:#34415a;'>
+    # Sticky professional footer (full-width)
+    footer_css_html = """
+    <style>
+      .footer-sticky {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #0E1117;
+        z-index: 999;
+        padding: 10px;
+        text-align: center;
+        color: #FFFFFF;
+        font-size:12px;
+      }
+    </style>
+    <div class="footer-sticky">
       © 2026 Lenon de Paula &nbsp;&nbsp; | &nbsp;&nbsp; 📧 lenondpaula@gmail.com &nbsp;&nbsp; | &nbsp;&nbsp; 📱 +55 (55) 98135-9099
-      <div style='margin-top:4px; font-size:11px; color:#707b8c;'>Licensed under the PolyForm Noncommercial License 1.0.0 — see /LICENSE</div>
+      <div style='margin-top:4px; font-size:11px; color:#B0B5BC;'>Licensed under the PolyForm Noncommercial License 1.0.0 — see /LICENSE</div>
     </div>
     """
-    st.markdown(footer_md, unsafe_allow_html=True)
+    st.markdown(footer_css_html, unsafe_allow_html=True)
 
     data_path = Path("data/bh_final_data.parquet")
     if not data_path.exists():
@@ -189,6 +210,13 @@ def main():
         st.error("Coluna de nome do bairro não encontrada no GeoDataFrame.")
         return
 
+    # Emergency cleaning: remove 'fallback' prefixes and '(?)' tokens from displayed names
+    try:
+        gdf[name_col] = gdf[name_col].astype(str).str.replace(r'fallback[-_]?','', regex=True, case=False).str.replace(r'\(\?\)|\?', '', regex=True).str.replace('_', ' ').str.strip()
+        gdf[name_col] = gdf[name_col].str.upper()
+    except Exception:
+        pass
+
     bairros_options = sorted(list(gdf[name_col].dropna().unique()))
 
     # Sidebar: filter to Centro-Sul only. If region column exists, prefer that; otherwise use hardcoded list
@@ -219,8 +247,9 @@ def main():
         centro_options = bairros_options[:9]
 
     selected = st.sidebar.multiselect("Selecionar bairros (Centro-Sul)", options=centro_options, default=[])
-    # Show all bairros by default when nothing is selected; filter only when user selects one or more
-    if selected and len(selected) > 0:
+    # If no selection is made, keep the full GeoDataFrame (show all Centro-Sul bairros).
+    # Apply filtering only when user explicitly selects one or more bairros.
+    if selected is not None and len(selected) > 0:
         gdf = gdf[gdf[name_col].isin(selected)].copy()
 
     # métricas rápidas na sidebar
@@ -255,17 +284,20 @@ def main():
                 fill_color = row.get("fill_color", [255, 255, 0, 180])
                 fill_color = [int(x) for x in list(fill_color)]
                 elevation = float(row.get("elevation", 0.0) or 0.0)
+                # Amplify elevation so towers are visible even when raw values are small
+                elevation = float(row.get("elevation", 0.0) or 0.0)
+                # PolygonLayer expects an array of rings (outer ring = first element)
+                coords_wrapped = [coords] if coords else []
                 rec = {
-                    "coordinates": coords,
-                    "fill_color": fill_color,
+                      "coordinates": coords_wrapped,                    "fill_color": fill_color,
                     "elevation": elevation,
+                      "Apetite_Investidor": float(row.get("Apetite_Investidor", 0) or 0.0),
                     name_col: row.get(name_col),
                     "Renda_Media": float(row.get("Renda_Media", 0) or 0.0),
                     "Qtd_Empresas": int(row.get("Qtd_Empresas", 0) or 0),
                     "Classificacao": str(row.get("Classificacao", "")),
                 }
                 records.append(rec)
-
             polygon_layer = pdk.Layer(
                 "PolygonLayer",
                 data=records,
@@ -277,9 +309,10 @@ def main():
                 get_polygon="coordinates",
                 get_fill_color="fill_color",
                 get_line_color=[80, 80, 80],
-                get_elevation="elevation",
+                get_elevation="Apetite_Investidor * 2500",
                 elevation_scale=1,
-                elevation_range=[0, 400],
+                # elevation_range expanded to accommodate amplified heights
+                elevation_range=[0, 1000000],
             )
 
             tooltip = {
@@ -291,7 +324,7 @@ def main():
 
             deck = pdk.Deck(
                 layers=[polygon_layer],
-                initial_view_state=pdk.ViewState(latitude=-19.933, longitude=-43.935, zoom=13.5, pitch=45),
+                initial_view_state=pdk.ViewState(latitude=-19.9286, longitude=-43.9412, zoom=14.0, pitch=50),
                 tooltip=tooltip,
             )
             try:

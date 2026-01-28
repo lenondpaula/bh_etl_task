@@ -1,9 +1,5 @@
-# Ambiente Virtual
 venv/
 .venv/
-env/
-
-# Arquivos temporários do Python
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+.DS_Store
