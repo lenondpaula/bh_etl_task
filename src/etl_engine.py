@@ -1,65 +1,3 @@
-#!/usr/bin/env python3
-"""ETL demonstrativo para o projeto BH Strategic Navigator.
-
-Fluxo:
- - Ler `data/dados_economicos.csv` com Polars
- - Ler `data/bairros_data.geojson` com GeoPandas
- - Normalizar nomes (remover acentos, caixa alta)
- - Converter Polars -> Pandas e realizar merge
- - Criar scores normalizados e indicador final
- - Classificar oportunidades e salvar `data/bh_final_data.geojson`
-"""
-from __future__ import annotations
-
-import logging
-import unicodedata
-from pathlib import Path
-
-import geopandas as gpd
-import numpy as np
-import pandas as pd
-import polars as pl
-from sklearn.preprocessing import MinMaxScaler
-
-
-def normalize_text(s: str | None) -> str | None:
-    """Normaliza texto removendo acentos e colocando em caixa alta.
-
-    Args:
-        s: Texto de entrada ou None.
-
-    Returns:
-        str | None: Texto normalizado (sem acentos, uppercase, sem espaços extremos) ou None se entrada for None.
-    """
-    if s is None:
-        return None
-    s = str(s)
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s.upper().strip()
-
-
-def minmax_scale_series(ser: pd.Series) -> pd.Series:
-    """Aplica normalização Min-Max em uma série numérica com tolerância a NaN.
-
-    Args:
-        ser: Série pandas com valores numéricos e possivelmente NaN.
-
-    Returns:
-        pd.Series: Série normalizada no intervalo [0, 1]. Quando todos os valores são NaN ou constantes, retorna zeros.
-    """
-    arr = ser.to_numpy(dtype=float)
-    if np.all(np.isnan(arr)):
-        return pd.Series(np.zeros_like(arr), index=ser.index)
-    arr_no_nan = arr[~np.isnan(arr)]
-    if arr_no_nan.size == 0 or np.nanmax(arr) == np.nanmin(arr):
-        return pd.Series(np.zeros_like(arr), index=ser.index)
-    scaler = MinMaxScaler()
-    arr2 = np.nan_to_num(arr, nan=0.0)
-    scaled = scaler.fit_transform(arr2.reshape(-1, 1)).ravel()
-    return pd.Series(scaled, index=ser.index)
-
-
 def run_etl(csv_path: str = "data/dados_economicos.csv", geojson_path: str = "data/bairros_data.geojson", out_path: str = "data/bh_final_data.geojson") -> None:
     """Executa o pipeline ETL: leitura, normalização, merge, scoring e saída.
 
@@ -104,6 +42,11 @@ def run_etl(csv_path: str = "data/dados_economicos.csv", geojson_path: str = "da
         else:
             merged[col] = np.nan
 
+    # Preencher NaN com 0.0 para evitar buracos no mapa
+    merged["Renda_Media"] = merged["Renda_Media"].fillna(0.0)
+    merged["Qtd_Empresas"] = merged["Qtd_Empresas"].fillna(0.0)
+    merged["Qtd_Pontos_Onibus"] = merged["Qtd_Pontos_Onibus"].fillna(0.0)
+
     # Engenharia de atributos: normalizações
     log.info("Calculando scores normalizados")
     merged["Score_Mobilidade"] = minmax_scale_series(merged["Qtd_Pontos_Onibus"]).fillna(0.0)
@@ -111,14 +54,11 @@ def run_etl(csv_path: str = "data/dados_economicos.csv", geojson_path: str = "da
     merged["Saturacao_Comercial"] = minmax_scale_series(merged["Qtd_Empresas"]).fillna(0.0)
 
     # Apetite_Investidor
-    merged["Apetite_Investidor"] = (merged["Score_Mobilidade"] * 0.4) + (merged["Score_Renda"] * 0.6)
+    merged["Apetite_Investidor"] = (merged["Score_Renda"] * 0.4) + (merged["Score_Mobilidade"] * 0.3) - (merged["Saturacao_Comercial"] * 0.3)
+    merged["Apetite_Investidor"] = merged["Apetite_Investidor"].clip(lower=0)
 
-    # Classificação (vetorizado)
-    merged["Classificacao"] = "REGULAR"
-    mask_ouro = (merged["Apetite_Investidor"] > 0.7) & (merged["Saturacao_Comercial"] < 0.4)
-    merged.loc[mask_ouro, "Classificacao"] = "OPORTUNIDADE DE OURO"
-    mask_saturado = (merged["Saturacao_Comercial"] >= 0.7)
-    merged.loc[mask_saturado, "Classificacao"] = "SATURADO"
+    # Classificação básica para consistência
+    merged["classificacao"] = "REGULAR"
 
     out_dir = Path(out_path).parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -136,7 +76,7 @@ def run_etl(csv_path: str = "data/dados_economicos.csv", geojson_path: str = "da
             "Qtd_Empresas",
             "Qtd_Pontos_Onibus",
             "Apetite_Investidor",
-            "Classificacao",
+            "classificacao",
         ]
         df_out = merged[[c for c in cols_out if c in merged.columns]].copy()
         pl_df = pl.DataFrame(df_out)
@@ -148,13 +88,3 @@ def run_etl(csv_path: str = "data/dados_economicos.csv", geojson_path: str = "da
     log.info("ETL concluído. Registros processados: %d", len(merged))
     # liberar memória de objetos grandes
     del merged
-
-
-def main() -> None:
-    """Entry point do módulo ETL: configura logging e executa o ETL padrão."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    run_etl()
-
-
-if __name__ == "__main__":
-    main()
