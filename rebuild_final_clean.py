@@ -237,9 +237,9 @@ print(f"✅ Classificações aplicadas:")
 for classif, count in gdf['Classificacao'].value_counts().items():
     print(f"   {classif}: {count} bairros")
 
-# **ESCALA CRÍTICA PARA 3D: Elevation_3D = Apetite * 3000 (0-1 -> 0-3km visual bars)**
+# **ESCALA CRÍTICA PARA 3D: Elevation_3D = 300 + (Apetite * 400) -> 300-700m range**
 print("\n📉 Calculando elevação 3D com escala visual crítica (Apetite × 3000)...")
-gdf['Elevation_3D'] = gdf['Apetite_Investidor'] * 3000  # Vertical exaggeration for visual impact
+gdf['Elevation_3D'] = 300 + (gdf['Apetite_Investidor'] * 400)  # Urban-scale: 300-700m
 print(f"✅ Elevação 3D calculada: max={gdf['Elevation_3D'].max():.1f}m, min={gdf['Elevation_3D'].min():.1f}m")
 
 # Selecionar colunas finais

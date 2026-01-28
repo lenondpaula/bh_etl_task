@@ -204,13 +204,13 @@ def main():
         gdf_local = gdf_local.drop(columns=["geometry"], errors="ignore")
         gdf_local["Apetite_Investidor"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float)
         gdf_local["Saturacao_Comercial"] = gdf_local["Saturacao_Comercial"].fillna(0).astype(float)
-        # elevation: usar Elevation_3D * 3000 para criar torres visuais de 0-3km (SCALE CRITICAL)
+        # elevation: 300 + (Apetite * 400) para torres urbanas visíveis (300-700m range)
         if "Elevation_3D" in gdf_local.columns:
-            gdf_local["elevation"] = gdf_local["Elevation_3D"].fillna(0).astype(float) * 3000
+            gdf_local["elevation"] = 300 + (gdf_local["Elevation_3D"].fillna(0).astype(float) * 400)
         elif "Apetite_Investidor" in gdf_local.columns:
-            gdf_local["elevation"] = gdf_local["Apetite_Investidor"].fillna(0).astype(float) * 3000
+            gdf_local["elevation"] = 300 + (gdf_local["Apetite_Investidor"].fillna(0).astype(float) * 400)
         else:
-            gdf_local["elevation"] = 0.0
+            gdf_local["elevation"] = 300.0
         # fill_color: Color by Classificacao (OURO/SATURADO/PRATA)
         def _fill_by_class(classif: str):
             classif_upper = str(classif).upper() if pd.notna(classif) else ""
@@ -250,7 +250,7 @@ def main():
 
 **Score de Apetite** = 0.4 × Mobilidade + 0.3 × Renda + 0.3 × (1 - Saturação)
 
-**Elevação 3D** = Apetite_Investidor × 3000 (escala em metros)
+**Elevação 3D** = 300 + (Apetite_Investidor × 400) metros
         """,
         unsafe_allow_html=True,
     )
@@ -371,7 +371,7 @@ def main():
                 get_elevation="elevation",
                 auto_highlight=True,
                 elevation_scale=1.0,
-                elevation_range=[0, 3000000],
+                elevation_range=[0, 1000],
             )
 
             tooltip = {
